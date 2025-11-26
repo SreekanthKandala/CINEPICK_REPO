@@ -132,9 +132,23 @@
             50% { transform: scale(1.3); }
             100% { transform: scale(1); }
         }
+
+        /* Confetti Canvas */
+        #confetti-canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 100;
+        }
     </style>
 </head>
 <body class="min-h-screen flex flex-col">
+
+    <!-- Canvas for Confetti -->
+    <canvas id="confetti-canvas"></canvas>
 
     <!-- Navbar -->
     <nav class="flex items-center justify-between px-4 py-4 md:px-8 fixed w-full z-50 bg-gradient-to-b from-black/90 to-transparent pointer-events-none">
@@ -287,6 +301,55 @@
         }
         function closeInstallHelp() { document.getElementById('install-modal').classList.add('hidden'); }
 
+        // --- CONFETTI EFFECT ---
+        function triggerConfetti() {
+            const canvas = document.getElementById('confetti-canvas');
+            const ctx = canvas.getContext('2d');
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            
+            const particles = [];
+            const colors = ['#e50914', '#ffffff', '#ffd700', '#4facfe'];
+            
+            for (let i = 0; i < 100; i++) {
+                particles.push({
+                    x: Math.random() * canvas.width,
+                    y: Math.random() * canvas.height - canvas.height,
+                    r: Math.random() * 6 + 2,
+                    d: Math.random() * 10 + 10,
+                    color: colors[Math.floor(Math.random() * colors.length)],
+                    tilt: Math.floor(Math.random() * 10) - 10,
+                    tiltAngle: 0,
+                    tiltAngleIncr: Math.random() * 0.07 + 0.05
+                });
+            }
+
+            let angle = 0;
+            function draw() {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                angle += 0.01;
+                for (let i = 0; i < particles.length; i++) {
+                    let p = particles[i];
+                    ctx.beginPath();
+                    ctx.lineWidth = p.r / 2;
+                    ctx.strokeStyle = p.color;
+                    ctx.moveTo(p.x + p.tilt + p.r / 4, p.y);
+                    ctx.lineTo(p.x + p.tilt, p.y + p.tilt + p.r / 4);
+                    ctx.stroke();
+                    
+                    p.y += Math.cos(angle + p.d) + 1 + p.r / 2;
+                    p.x += Math.sin(angle);
+                    p.tilt = Math.sin(p.tiltAngle - i / 3) * 15;
+                    p.tiltAngle += p.tiltAngleIncr;
+                    
+                    if (p.y > canvas.height) particles.splice(i, 1);
+                }
+                if (particles.length > 0) requestAnimationFrame(draw);
+                else ctx.clearRect(0,0,canvas.width,canvas.height);
+            }
+            draw();
+        }
+
         // --- AI HELPERS ---
         async function callGemini(prompt) {
             try {
@@ -354,6 +417,65 @@
             return text || "This movie is an absolute masterpiece you can't miss! 🍿";
         }
 
+        async function getAiTrivia(title) {
+            const prompt = `Tell me one specific, fascinating, and lesser-known trivia fact about the production or cast of the movie "${title}". Keep it under 30 words and be engaging.`;
+            const text = await callGemini(prompt);
+            return text || "Did you know? This movie is considered a classic in its genre!";
+        }
+
+        async function triggerAiContent(type, title) {
+            const box = document.getElementById('ai-hype-box');
+            box.innerHTML = '<i class="fas fa-circle-notch fa-spin mr-2"></i> Asking AI...';
+            box.classList.remove('hidden');
+            
+            let content = "";
+            if (type === 'hype') {
+                content = await getAiHype(title);
+            } else {
+                content = await getAiTrivia(title);
+            }
+            
+            const icon = type === 'hype' ? '🔥' : '💡';
+            const label = type === 'hype' ? 'Hype' : 'Fact';
+            box.innerHTML = `<span class="text-lg mr-2">${icon}</span> <span class="font-bold text-xs uppercase opacity-70 mr-1">${label}:</span> ${content} <span class="block text-right text-[10px] mt-1 opacity-50">- Gemini AI</span>`;
+        }
+
+        // --- HELPER FUNCTIONS ---
+        function getStarRating(ratingStr) {
+            const rating = parseFloat(ratingStr);
+            if (isNaN(rating)) return '';
+            
+            const stars = Math.round(rating / 2); // Convert 10-scale to 5-scale
+            let html = '';
+            for (let i = 0; i < 5; i++) {
+                if (i < stars) {
+                    html += '<i class="fas fa-star text-yellow-500 text-xs"></i>';
+                } else {
+                    html += '<i class="far fa-star text-gray-600 text-xs"></i>';
+                }
+            }
+            return `<span class="flex gap-0.5 ml-1">${html}</span>`;
+        }
+
+        function shareMovie(title, text, url) {
+            if (navigator.share) {
+                navigator.share({
+                    title: `CinePick: ${title}`,
+                    text: `${text}\n\nCheck it out here:`,
+                    url: url || window.location.href
+                }).catch(err => console.log('Error sharing', err));
+            } else {
+                // Fallback
+                const tempInput = document.createElement('input');
+                document.body.appendChild(tempInput);
+                tempInput.value = `${title} - ${text} (Search on Google)`;
+                tempInput.select();
+                document.execCommand('copy');
+                document.body.removeChild(tempInput);
+                alert('Movie details copied to clipboard!');
+            }
+        }
+
         // --- APP DATA & LOGIC ---
         const getPoster = (title, year) => `https://placehold.co/600x900/0f0f0f/e50914?text=${encodeURIComponent(title)}+%0A(${year})&font=oswald`;
         const getLink = (title) => `https://www.justwatch.com/in/search?q=${encodeURIComponent(title)}`;
@@ -361,7 +483,7 @@
 
         // (Existing rawMovies data remains the same as previous version for brevity, inserted here implicitly)
         const rawMovies = {
-            'Action': [ { t: "RRR", y: 2022, r: "8.8", ol: "Telugu", al: "Tel, Hin, Tam, Eng", d: "A fearless warrior on a perilous mission comes face to face with a steely cop serving the British forces.", yt: false }, { t: "John Wick 4", y: 2023, r: "7.7", ol: "English", al: "Eng", d: "John Wick uncovers a path to defeating The High Table.", yt: false } ],
+            'Action': [ { t: "RRR", y: 2022, r: "8.8", ol: "Telugu", al: "Tel, Hin, Tam, Eng", d: "A fearless warrior on a perilous mission comes face to face with a steely cop serving the British forces in this epic saga.", yt: false }, { t: "John Wick 4", y: 2023, r: "7.7", ol: "English", al: "Eng", d: "John Wick uncovers a path to defeating The High Table.", yt: false } ],
             'Comedy': [ { t: "Jathi Ratnalu", y: 2021, r: "7.3", ol: "Telugu", al: "Tel", d: "Three happy-go-lucky friends land up in jail and learn a new path to earn respect.", yt: false }, { t: "Hangover", y: 2009, r: "7.7", ol: "English", al: "Eng", d: "Three buddies wake up from a bachelor party with no memory of the previous night.", yt: false } ],
             'Sci-Fi': [ { t: "Interstellar", y: 2014, r: "8.6", ol: "English", al: "Eng", d: "A team of explorers travel through a wormhole in space to ensure humanity's survival.", yt: false }, { t: "Kalki 2898 AD", y: 2024, r: "7.8", ol: "Telugu", al: "Tel, Hin", d: "A modern-day avatar of Vishnu descends to earth.", yt: false } ],
             'Horror': [ { t: "Tumbbad", y: 2018, r: "8.2", ol: "Hindi", al: "Hin", d: "A mythological story about a goddess and the consequences of greed.", yt: false }, { t: "The Conjuring", y: 2013, r: "7.5", ol: "English", al: "Eng", d: "Paranormal investigators help a family terrorized by a dark presence.", yt: false } ],
@@ -447,6 +569,7 @@
                 history.push(aiMovie);
                 currentIndex = 0;
                 switchView('result');
+                triggerConfetti(); // Celebrate AI Pick
                 renderCard(aiMovie, 'right');
             } else {
                 // Fallback
@@ -472,8 +595,6 @@
 
         async function generateNewMovie() {
             if (currentGenre === "AI Pick ✨") {
-                // For AI mode, hitting "Next" just generates another based on the SAME prompt or random? 
-                // Let's fallback to random suggestions to avoid re-prompting complexity for now
                 currentGenre = "Surprise"; 
             }
 
@@ -497,6 +618,7 @@
             const heartClass = isSaved ? "text-[#e50914]" : "text-white";
             const btnClass = movie.platformName === "YouTube" ? "bg-red-600" : "bg-[#e50914]";
             const iconClass = movie.platformName === "YouTube" ? "fab fa-youtube" : "fas fa-play";
+            const starsHtml = getStarRating(movie.rating);
 
             const html = `
                 <div class="w-full md:w-5/12 relative h-[50vh] md:h-auto bg-black shrink-0 group">
@@ -510,6 +632,7 @@
                 </div>
                 <div class="w-full md:w-7/12 p-6 md:p-10 flex flex-col justify-center relative bg-[#181818]">
                     <div class="hidden md:flex absolute top-6 right-6 gap-3 z-20">
+                         <button onclick="shareMovie('${movie.title.replace(/'/g, "\\'")}', '${movie.desc.replace(/'/g, "\\'")}')" class="text-gray-400 hover:text-white transition bg-white/5 p-3 rounded-full hover:bg-white/10"><i class="fas fa-share-alt text-xl"></i></button>
                          <button onclick="toggleSaveCurrent()" class="text-gray-400 hover:text-[#e50914] transition bg-white/5 p-3 rounded-full hover:bg-white/10"><i id="heart-desktop" class="fas fa-heart text-xl ${heartClass}"></i></button>
                         <button onclick="resetApp()" class="text-gray-400 hover:text-white transition bg-white/5 p-3 rounded-full hover:bg-white/10"><i class="fas fa-times text-xl"></i></button>
                     </div>
@@ -519,9 +642,10 @@
                              <span class="text-green-400 text-xs font-bold"><i class="fas fa-check-circle mr-1"></i>Match</span>
                         </div>
                         <h1 class="text-3xl md:text-5xl font-bold leading-none mb-2 text-white">${movie.title}</h1>
-                        <div class="flex flex-wrap gap-3 text-sm text-gray-400 font-medium">
+                        <div class="flex flex-wrap items-center gap-3 text-sm text-gray-400 font-medium">
                             <span class="text-white bg-white/10 px-2 rounded">${movie.year}</span>
-                            <span>${movie.rating} ★</span>
+                            <span>${movie.rating}</span>
+                            ${starsHtml}
                         </div>
                     </div>
                     <div class="relative">
@@ -531,7 +655,9 @@
                     
                     <div class="flex gap-3 mt-auto">
                         <a href="${movie.link}" target="_blank" class="flex-1 py-4 rounded-xl font-bold text-white text-lg flex items-center justify-center shadow-lg transition transform active:scale-95 ${btnClass}"><i class="${iconClass} mr-2"></i> Watch</a>
-                        <button onclick="triggerHype('${movie.title.replace(/'/g, "\\'")}')" class="px-4 bg-gray-800 rounded-xl text-blue-400 border border-blue-500/30 hover:bg-gray-700 transition"><i class="fas fa-sparkles"></i></button>
+                        <button onclick="triggerAiContent('hype', '${movie.title.replace(/'/g, "\\'")}')" class="px-4 bg-gray-800 rounded-xl text-blue-400 border border-blue-500/30 hover:bg-gray-700 transition" title="AI Hype"><i class="fas fa-sparkles"></i></button>
+                        <button onclick="triggerAiContent('trivia', '${movie.title.replace(/'/g, "\\'")}')" class="px-4 bg-gray-800 rounded-xl text-yellow-400 border border-yellow-500/30 hover:bg-gray-700 transition" title="AI Trivia"><i class="fas fa-lightbulb"></i></button>
+                        <button onclick="shareMovie('${movie.title.replace(/'/g, "\\'")}', '${movie.desc.replace(/'/g, "\\'")}')" class="md:hidden px-4 bg-gray-800 rounded-xl text-gray-400 border border-gray-700 hover:bg-gray-700 transition"><i class="fas fa-share-alt"></i></button>
                     </div>
                 </div>
             `;
@@ -540,14 +666,6 @@
             container.classList.remove('slide-in-right', 'slide-in-left');
             void container.offsetWidth;
             container.classList.add(direction === 'right' ? 'slide-in-right' : 'slide-in-left');
-        }
-
-        async function triggerHype(title) {
-            const box = document.getElementById('ai-hype-box');
-            box.innerHTML = '<i class="fas fa-circle-notch fa-spin mr-2"></i> Asking AI...';
-            box.classList.remove('hidden');
-            const hype = await getAiHype(title);
-            box.innerHTML = `"${hype}" <span class="block text-right text-xs mt-1 opacity-70">- Gemini AI</span>`;
         }
 
         // --- Touch Logic ---
